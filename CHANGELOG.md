@@ -13,6 +13,10 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
   Echoing the caller's own measurements back left a linked-device callee with
   only the 5-8 RTP frames sent before `<accept>`; without the echo the relay
   bridges the whole call (5 → 407 frames over a 33 s live call). Fixes #36.
+- Closed the relay channel when a call's media is cancelled, so a relay that
+  has gone quiet no longer holds the receive loop in `Recv`. A call that ended
+  before the peer answered left 7 goroutines (the loop and the relay stack)
+  running for the life of the process.
 
 ### media/group-runtime — `KAT-verified`
 

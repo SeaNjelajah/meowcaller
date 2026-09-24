@@ -224,7 +224,13 @@ func (e *engine) runMedia(ctx context.Context, callID string, call *Call, callKe
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
+	// Close on cancel so a silent relay cannot hold Recv open.
+	stopCloseOnCancel := context.AfterFunc(ctx, func() { _ = ch.Close() })
+	defer func() {
+		if stopCloseOnCancel() {
+			_ = ch.Close()
+		}
+	}()
 	allocateState := newGroupRelayAllocateStateWithHBHFEC(
 		allocate,
 		rd.relayKeyASCII,
