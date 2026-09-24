@@ -160,8 +160,10 @@ func (e *engine) install() {
 		case *events.CallAccept:
 			e.onAccept(ev)
 		case *events.CallRelayLatency:
+			// The callee does not answer relaylatency probes: echoing the caller's own
+			// measurements back left a linked-device callee receiving only the pre-accept
+			// RTP (issue #36). whatsapp-rust sends nothing here either.
 			e.onRelay(ev.CallID, ev.Data)
-			e.onRelayLatency(ev)
 		case *events.CallTransport:
 			e.onRelay(ev.CallID, ev.Data)
 		case *events.CallTerminate:
@@ -786,47 +788,6 @@ func (e *engine) onRelay(callID string, data *waBinary.Node) {
 	e.maybeStartMedia(callID)
 }
 
-// onRelayLatency answers the caller's relaylatency probes (the callee's half of the
-// relay election). It does NOT send the accept — that is deferred until <mute_v2>.
-func (e *engine) onRelayLatency(ev *events.CallRelayLatency) {
-	m := e.lookup(ev.CallID)
-	if m == nil || m.direction != CallDirectionIncoming {
-		return
-	}
-	rl := findChild(ev.Data, "relaylatency")
-	if rl == nil {
-		return
-	}
-	var probes []rlProbe
-	for i := range rl.GetChildren() {
-		te := &rl.GetChildren()[i]
-		if te.Tag != "te" {
-			continue
-		}
-		ag := te.AttrGetter()
-		probes = append(probes, rlProbe{
-			latency:   decodeLatency(ag.String("latency")),
-			relayName: ag.String("relay_name"),
-			addr:      nodeBytes(te),
-		})
-	}
-	for _, p := range probes {
-		resp := signaling.BuildRelayLatency(&signaling.RelayLatencyParams{
-			CallID:       ev.CallID,
-			To:           ev.From,
-			CallCreator:  ev.CallCreator,
-			LatencyMs:    p.latency,
-			RelayName:    p.relayName,
-			AddressBytes: p.addr,
-		})
-		resp.Attrs["id"] = e.c.wa.GenerateMessageID()
-		if err := e.c.wa.DangerousInternals().SendNode(context.Background(), resp); err != nil {
-			e.c.log.Error().Err(err).Str("call_id", ev.CallID).Msg("send relaylatency failed")
-			return
-		}
-	}
-}
-
 // onPreAccept records that the peer's device received and started preparing an outgoing call.
 func (e *engine) onPreAccept(ev *events.CallPreAccept) {
 	m := e.lookup(ev.CallID)
@@ -972,13 +933,6 @@ func (e *engine) onReject(ev *events.CallReject) {
 		"event": "peer_reject", "call_id": ev.CallID, "from": ev.From.String(),
 	})
 	e.finishCall(ev.CallID, "rejected")
-}
-
-// rlProbe is one relay candidate from a relaylatency probe.
-type rlProbe struct {
-	latency   uint32
-	relayName string
-	addr      []byte
 }
 
 // applyVoipSettingsCodec finds the <voip_settings> blob under node (an inbound
@@ -1568,15 +1522,6 @@ func findChild(n *waBinary.Node, tag string) *waBinary.Node {
 		}
 	}
 	return nil
-}
-
-// decodeLatency reverses the relay-latency wire encoding (0x2000000 + rttMs).
-func decodeLatency(enc string) uint32 {
-	v, err := strconv.ParseUint(enc, 10, 32)
-	if err != nil || v < 0x0200_0000 {
-		return 0
-	}
-	return uint32(v) - 0x0200_0000
 }
 
 func attrUint(n *waBinary.Node, key string) uint32 {

@@ -7,6 +7,13 @@ All notable changes to meowcaller, tracked per module. Format loosely follows
 
 ## [Unreleased]
 
+### engine/inbound-1to1 — `implemented`
+
+- Stopped answering the caller's `<relaylatency>` probes on inbound 1:1 calls.
+  Echoing the caller's own measurements back left a linked-device callee with
+  only the 5-8 RTP frames sent before `<accept>`; without the echo the relay
+  bridges the whole call (5 → 407 frames over a 33 s live call). Fixes #36.
+
 ### media/group-runtime — `KAT-verified`
 
 - Hardened live group-call teardown by closing and detaching audio endpoints,
